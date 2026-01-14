@@ -1,6 +1,7 @@
 import re
 import unittest
 import uuid
+from ast import Not
 
 
 class UsernameException(Exception):
@@ -23,7 +24,7 @@ class Payment:
         self.actor = actor
         self.target = target
         self.note = note
- 
+
 
 class User:
 
@@ -34,8 +35,7 @@ class User:
         if self._is_valid_username(username):
             self.username = username
         else:
-            raise UsernameException('Username not valid.')
-
+            raise UsernameException("Username not valid.")
 
     def retrieve_feed(self):
         # TODO: add code here
@@ -50,29 +50,29 @@ class User:
 
     def add_credit_card(self, credit_card_number):
         if self.credit_card_number is not None:
-            raise CreditCardException('Only one credit card per user!')
+            raise CreditCardException("Only one credit card per user!")
 
         if self._is_valid_credit_card(credit_card_number):
             self.credit_card_number = credit_card_number
 
         else:
-            raise CreditCardException('Invalid credit card number.')
+            raise CreditCardException("Invalid credit card number.")
 
     def pay(self, target, amount, note):
         # TODO: add logic to pay with card or balance
-        pass
+        raise NotImplementedError()
 
     def pay_with_card(self, target, amount, note):
         amount = float(amount)
 
         if self.username == target.username:
-            raise PaymentException('User cannot pay themselves.')
+            raise PaymentException("User cannot pay themselves.")
 
         elif amount <= 0.0:
-            raise PaymentException('Amount must be a non-negative number.')
+            raise PaymentException("Amount must be a non-negative number.")
 
         elif self.credit_card_number is None:
-            raise PaymentException('Must have a credit card to make a payment.')
+            raise PaymentException("Must have a credit card to make a payment.")
 
         self._charge_credit_card(self.credit_card_number)
         payment = Payment(amount, self, target, note)
@@ -88,7 +88,7 @@ class User:
         return credit_card_number in ["4111111111111111", "4242424242424242"]
 
     def _is_valid_username(self, username):
-        return re.match('^[A-Za-z0-9_\\-]{4,15}$', username)
+        return re.match("^[A-Za-z0-9_\\-]{4,15}$", username)
 
     def _charge_credit_card(self, credit_card_number):
         # magic method that charges a credit card thru the card processor
@@ -97,8 +97,10 @@ class User:
 
 class MiniVenmo:
     def create_user(self, username, balance, credit_card_number):
-        # TODO: add code here
-        pass
+        user = User(username)
+        user.add_to_balance(balance)
+        user.add_credit_card(credit_card_number)
+        return user
 
     def render_feed(self, feed):
         # Bobby paid Carol $5.00 for Coffee
@@ -116,7 +118,7 @@ class MiniVenmo:
         try:
             # should complete using balance
             bobby.pay(carol, 5.00, "Coffee")
- 
+
             # should complete using card
             carol.pay(bobby, 15.00, "Lunch")
         except PaymentException as e:
@@ -130,10 +132,31 @@ class MiniVenmo:
 
 class TestUser(unittest.TestCase):
 
-    def test_this_works(self):
+    def test_user_create(self):
+        name = "Bobby"
+        self.assertEqual(User(name).username, name)
+
+    def test_user_create_invalid_username(self):
         with self.assertRaises(UsernameException):
-            raise UsernameException()
+            User("Invalid Bobby!")
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestMiniVenmo(unittest.TestCase):
+
+    def test_mini_venmo_create_user(self):
+        bobby_data = {"username": "Bobby", "balance": 5.00, "credit_card_number": "4111111111111111"}
+
+        mini_venmo = MiniVenmo()
+        bobby = mini_venmo.create_user(**bobby_data)
+        self.assertEqual(bobby.username, bobby_data["username"])
+        self.assertEqual(bobby.balance, bobby_data["balance"])
+        self.assertEqual(bobby.credit_card_number, bobby_data["credit_card_number"])
+
+    def test_mini_venmo_run(self):
+        with self.assertRaises(NotImplementedError):
+            mini_venmo = MiniVenmo()
+            mini_venmo.run()
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=3)
