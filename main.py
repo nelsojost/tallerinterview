@@ -30,12 +30,16 @@ class Payment:
         self.target = target
         self.note = note
 
+    def get_feed_msg(self) -> str:
+        return f"{self.actor.username} paid {self.target.username} ${self.amount:.2f} for {self.note}"
+
 
 class User:
 
     def __init__(self, username: str):
         self.credit_card_number = None
         self.balance = 0.0
+        self.payments = []
 
         if self._is_valid_username(username):
             self.username = username
@@ -43,8 +47,7 @@ class User:
             raise UsernameException("Username not valid.")
 
     def retrieve_feed(self):
-        # TODO: add code here
-        return []
+        return [payment.get_feed_msg() for payment in self.payments]
 
     def add_friend(self, new_friend):
         # TODO: add code here
@@ -66,7 +69,7 @@ class User:
         else:
             raise CreditCardException()
 
-    def pay(self, target: Self, amount: float, note: str):
+    def pay(self, target: Self, amount: float, note: str) -> Payment:
         try:
             amount = float(amount)
         except ValueError:
@@ -76,9 +79,14 @@ class User:
             raise PaymentException(PaymentException.INVALID_AMOUNT_ERROR)
 
         if self.balance >= amount:
-            return self.pay_with_balance(target, amount, note)
+            payment = self.pay_with_balance(target, amount, note)
         else:
-            return self.pay_with_card(target, amount, note)
+            payment = self.pay_with_card(target, amount, note)
+
+        self.payments.append(payment)
+        target.payments.append(payment)
+
+        return payment
 
     def pay_with_card(self, target, amount, note):
         amount = float(amount)
@@ -134,8 +142,8 @@ class MiniVenmo:
     def render_feed(self, feed):
         # Bobby paid Carol $5.00 for Coffee
         # Carol paid Bobby $15.00 for Lunch
-        # TODO: add code here
-        pass
+        for payment_msg in feed:
+            print(payment_msg)
 
     @classmethod
     def run(cls):
@@ -278,6 +286,20 @@ class TestUser(unittest.TestCase):
             bobby.pay_with_card(carol, -5.00, "Coffee")
             self.assertEqual(str(exc.exception), PaymentException.INVALID_AMOUNT_ERROR)
 
+    def test_user_retrieve_feed(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_credit_card("4111111111111111")
+        bobby.add_to_balance(10.00)
+
+        bobby.pay(carol, 5.00, "Coffee")
+        carol.add_credit_card("4242424242424242")
+        carol.pay(bobby, 15.00, "Lunch")
+
+        feed = bobby.retrieve_feed()
+        self.assertEqual(len(feed), 2)
+        self.assertIn("Bobby paid Carol $5.00 for Coffee", feed)
+        self.assertIn("Carol paid Bobby $15.00 for Lunch", feed)
+
 
 class TestMiniVenmo(unittest.TestCase):
 
@@ -289,6 +311,17 @@ class TestMiniVenmo(unittest.TestCase):
         self.assertEqual(bobby.username, bobby_data["username"])
         self.assertEqual(bobby.balance, bobby_data["balance"])
         self.assertEqual(bobby.credit_card_number, bobby_data["credit_card_number"])
+
+    def test_mini_venmo_render_feed(self):
+        mini_venmo = MiniVenmo()
+        expected_feed = ["Bobby paid Carol $5.00 for Coffee", "Carol paid Bobby $15.00 for Lunch"]
+
+        bobby = mini_venmo.create_user("Bobby", 5.00, "4111111111111111")
+        carol = mini_venmo.create_user("Carol", 10.00, "4242424242424242")
+        bobby.pay(carol, 5.00, "Coffee")
+        carol.pay(bobby, 15.00, "Lunch")
+        feed = bobby.retrieve_feed()
+        self.assertEqual(feed, expected_feed)
 
 
 if __name__ == "__main__":
