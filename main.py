@@ -1,7 +1,7 @@
 import re
 import unittest
 import uuid
-from ast import Not
+from typing import Self
 
 
 class UsernameException(Exception):
@@ -9,16 +9,21 @@ class UsernameException(Exception):
 
 
 class PaymentException(Exception):
-    pass
+    SAME_USER_ERROR = "User cannot pay themselves."
+    INSUFFICIENT_BALANCE_ERROR = "Insufficient balance to make the payment."
+    INVALID_AMOUNT_ERROR = "Amount must be a non-negative number."
+    INVALID_AMOUNT_NUMBER_ERROR = "Amount must be a valid number."
+    NO_CREDIT_CARD_ERROR = "Must have a credit card to make a payment."
 
 
 class CreditCardException(Exception):
-    pass
+    MULTIPLE_CREDIT_CARDS_ERROR = "Only one credit card per user!"
+    INVALID_CREDIT_CARD_ERROR = "Invalid credit card number."
 
 
 class Payment:
 
-    def __init__(self, amount, actor, target, note):
+    def __init__(self, amount: float, actor: "User", target: "User", note: str):
         self.id = str(uuid.uuid4())
         self.amount = float(amount)
         self.actor = actor
@@ -28,7 +33,7 @@ class Payment:
 
 class User:
 
-    def __init__(self, username):
+    def __init__(self, username: str):
         self.credit_card_number = None
         self.balance = 0.0
 
@@ -45,34 +50,47 @@ class User:
         # TODO: add code here
         pass
 
-    def add_to_balance(self, amount):
-        self.balance += float(amount)
+    def add_to_balance(self, amount: float | str):
+        amount = float(amount)
+        if amount <= 0.0:
+            raise ValueError("Amount must be a non-negative number.")
+        self.balance += amount
 
     def add_credit_card(self, credit_card_number):
         if self.credit_card_number is not None:
-            raise CreditCardException("Only one credit card per user!")
+            raise CreditCardException(CreditCardException.MULTIPLE_CREDIT_CARDS_ERROR)
 
         if self._is_valid_credit_card(credit_card_number):
             self.credit_card_number = credit_card_number
 
         else:
-            raise CreditCardException("Invalid credit card number.")
+            raise CreditCardException()
 
-    def pay(self, target, amount, note):
-        # TODO: add logic to pay with card or balance
-        raise NotImplementedError()
+    def pay(self, target: Self, amount: float, note: str):
+        try:
+            amount = float(amount)
+        except ValueError:
+            raise PaymentException(PaymentException.INVALID_AMOUNT_NUMBER_ERROR)
+
+        if amount <= 0.0:
+            raise PaymentException(PaymentException.INVALID_AMOUNT_ERROR)
+
+        if self.balance >= amount:
+            return self.pay_with_balance(target, amount, note)
+        else:
+            return self.pay_with_card(target, amount, note)
 
     def pay_with_card(self, target, amount, note):
         amount = float(amount)
 
         if self.username == target.username:
-            raise PaymentException("User cannot pay themselves.")
+            raise PaymentException(PaymentException.SAME_USER_ERROR)
 
         elif amount <= 0.0:
-            raise PaymentException("Amount must be a non-negative number.")
+            raise PaymentException(PaymentException.INVALID_AMOUNT_ERROR)
 
         elif self.credit_card_number is None:
-            raise PaymentException("Must have a credit card to make a payment.")
+            raise PaymentException(PaymentException.NO_CREDIT_CARD_ERROR)
 
         self._charge_credit_card(self.credit_card_number)
         payment = Payment(amount, self, target, note)
@@ -80,9 +98,20 @@ class User:
 
         return payment
 
-    def pay_with_balance(self, target, amount, note):
-        # TODO: add code here
-        pass
+    def pay_with_balance(self, target: Self, amount: float, note: str) -> Payment:
+        if self.username == target.username:
+            raise PaymentException(PaymentException.SAME_USER_ERROR)
+
+        elif amount <= 0.0:
+            raise PaymentException(PaymentException.INVALID_AMOUNT_ERROR)
+
+        elif self.balance < amount:
+            raise PaymentException(PaymentException.INSUFFICIENT_BALANCE_ERROR)
+
+        self.balance -= amount
+        payment = Payment(amount, self, target, note)
+        target.add_to_balance(amount)
+        return payment
 
     def _is_valid_credit_card(self, credit_card_number):
         return credit_card_number in ["4111111111111111", "4242424242424242"]
@@ -90,7 +119,7 @@ class User:
     def _is_valid_username(self, username):
         return re.match("^[A-Za-z0-9_\\-]{4,15}$", username)
 
-    def _charge_credit_card(self, credit_card_number):
+    def _charge_credit_card(self, credit_card_number: str):
         # magic method that charges a credit card thru the card processor
         pass
 
@@ -140,6 +169,115 @@ class TestUser(unittest.TestCase):
         with self.assertRaises(UsernameException):
             User("Invalid Bobby!")
 
+    def test_user_add_to_balance(self):
+        bobby = User("Bobby")
+        bobby.add_to_balance(10.00)
+        self.assertEqual(bobby.balance, 10.00)
+
+    def test_user_add_to_balance_invalid_amounts(self):
+        bobby = User("Bobby")
+
+        with self.assertRaises(ValueError):
+            bobby.add_to_balance(0.0)
+        with self.assertRaises(ValueError):
+            bobby.add_to_balance(-5.00)
+        with self.assertRaises(ValueError):
+            bobby.add_to_balance("five")
+
+        bobby.add_to_balance("5.0")
+        self.assertEqual(bobby.balance, 5.0)
+
+    def test_user_pay_with_balance(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_to_balance(10.00)
+
+        payment = bobby.pay_with_balance(carol, 5.00, "Coffee")
+
+        self.assertEqual(payment.amount, 5.00)
+        self.assertEqual(payment.actor.username, "Bobby")
+        self.assertEqual(payment.target.username, "Carol")
+        self.assertEqual(payment.note, "Coffee")
+
+        self.assertEqual(bobby.balance, 5.00)
+        self.assertEqual(carol.balance, 5.00)
+
+    def test_user_pay_with_balance_same_user(self):
+        bobby = User("Bobby")
+        bobby.add_to_balance(10.00)
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_balance(bobby, 5.00, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.SAME_USER_ERROR)
+
+    def test_user_pay_with_balance_invalid_amounts(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_to_balance(10.00)
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_balance(carol, 0.0, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.INVALID_AMOUNT_ERROR)
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_balance(carol, -5.00, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.INVALID_AMOUNT_ERROR)
+
+    def test_user_pay_with_balance_insufficient_funds(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_to_balance(5.00)
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_balance(carol, 10.00, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.INSUFFICIENT_BALANCE_ERROR)
+
+    def test_user_pay(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_credit_card("4111111111111111")
+        bobby.add_to_balance(10.00)
+
+        payment = bobby.pay(carol, 5.00, "Coffee")
+
+        self.assertEqual(payment.amount, 5.00)
+        self.assertEqual(payment.actor.username, "Bobby")
+        self.assertEqual(payment.target.username, "Carol")
+        self.assertEqual(payment.note, "Coffee")
+
+        self.assertEqual(bobby.balance, 5.00)
+        self.assertEqual(carol.balance, 5.00)
+
+    def test_user_pay_with_card(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_credit_card("4111111111111111")
+
+        payment = bobby.pay_with_card(carol, 15.00, "Lunch")
+
+        self.assertEqual(payment.amount, 15.00)
+        self.assertEqual(payment.actor.username, "Bobby")
+        self.assertEqual(payment.target.username, "Carol")
+        self.assertEqual(payment.note, "Lunch")
+
+        self.assertEqual(bobby.balance, 0.0)
+        self.assertEqual(carol.balance, 15.00)
+
+    def test_user_pay_with_card_same_user(self):
+        bobby = User("Bobby")
+        bobby.add_credit_card("4111111111111111")
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_card(bobby, 5.00, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.SAME_USER_ERROR)
+
+    def test_user_pay_with_card_invalid_amounts(self):
+        bobby, carol = User("Bobby"), User("Carol")
+        bobby.add_credit_card("4111111111111111")
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_card(carol, 0.0, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.INVALID_AMOUNT_ERROR)
+
+        with self.assertRaises(PaymentException) as exc:
+            bobby.pay_with_card(carol, -5.00, "Coffee")
+            self.assertEqual(str(exc.exception), PaymentException.INVALID_AMOUNT_ERROR)
+
 
 class TestMiniVenmo(unittest.TestCase):
 
@@ -151,11 +289,6 @@ class TestMiniVenmo(unittest.TestCase):
         self.assertEqual(bobby.username, bobby_data["username"])
         self.assertEqual(bobby.balance, bobby_data["balance"])
         self.assertEqual(bobby.credit_card_number, bobby_data["credit_card_number"])
-
-    def test_mini_venmo_run(self):
-        with self.assertRaises(NotImplementedError):
-            mini_venmo = MiniVenmo()
-            mini_venmo.run()
 
 
 if __name__ == "__main__":
