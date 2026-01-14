@@ -1,6 +1,7 @@
 import re
 import unittest
 import uuid
+from abc import ABCMeta, abstractmethod
 from typing import Self
 
 
@@ -21,7 +22,13 @@ class CreditCardException(Exception):
     INVALID_CREDIT_CARD_ERROR = "Invalid credit card number."
 
 
-class Payment:
+class FeedLog(metaclass=ABCMeta):
+    @abstractmethod
+    def get_feed_msg(self) -> str:
+        pass
+
+
+class Payment(FeedLog):
 
     def __init__(self, amount: float, actor: "User", target: "User", note: str):
         self.id = str(uuid.uuid4())
@@ -34,12 +41,27 @@ class Payment:
         return f"{self.actor.username} paid {self.target.username} ${self.amount:.2f} for {self.note}"
 
 
+class FriendshipLog(FeedLog):
+    STATUS_ADDED = "added"
+    STATUS_REMOVED = "removed"
+
+    def __init__(self, user1: "User", user2: "User", status: str):
+        self.id = str(uuid.uuid4())
+        self.user1 = user1
+        self.user2 = user2
+        self.status = status
+
+    def get_feed_msg(self) -> str:
+        return f"{self.user1.username} {self.status} {self.user2.username} as a friend."
+
+
 class User:
 
     def __init__(self, username: str):
-        self.credit_card_number = None
-        self.balance = 0.0
-        self.payments = []
+        self.credit_card_number: str | None = None
+        self.balance: float = 0.0
+        self.feed: list[Payment | FriendshipLog] = []
+        self.friends: list[User] = []
 
         if self._is_valid_username(username):
             self.username = username
@@ -47,11 +69,13 @@ class User:
             raise UsernameException("Username not valid.")
 
     def retrieve_feed(self):
-        return [payment.get_feed_msg() for payment in self.payments]
+        return [feed_item.get_feed_msg() for feed_item in self.feed]
 
-    def add_friend(self, new_friend):
-        # TODO: add code here
-        pass
+    def add_friend(self, new_friend: Self):
+        self.friends.append(new_friend)
+        friendship_log = FriendshipLog(self, new_friend, FriendshipLog.STATUS_ADDED)
+        self.feed.append(friendship_log)
+        new_friend.feed.append(friendship_log)
 
     def add_to_balance(self, amount: float | str):
         amount = float(amount)
@@ -83,8 +107,8 @@ class User:
         else:
             payment = self.pay_with_card(target, amount, note)
 
-        self.payments.append(payment)
-        target.payments.append(payment)
+        self.feed.append(payment)
+        target.feed.append(payment)
 
         return payment
 
@@ -140,8 +164,6 @@ class MiniVenmo:
         return user
 
     def render_feed(self, feed):
-        # Bobby paid Carol $5.00 for Coffee
-        # Carol paid Bobby $15.00 for Lunch
         for payment_msg in feed:
             print(payment_msg)
 
@@ -304,8 +326,11 @@ class TestUser(unittest.TestCase):
 class TestMiniVenmo(unittest.TestCase):
 
     def test_mini_venmo_create_user(self):
-        bobby_data = {"username": "Bobby", "balance": 5.00, "credit_card_number": "4111111111111111"}
-
+        bobby_data = {
+            "username": "Bobby",
+            "balance": 5.00,
+            "credit_card_number": "4111111111111111",
+        }
         mini_venmo = MiniVenmo()
         bobby = mini_venmo.create_user(**bobby_data)
         self.assertEqual(bobby.username, bobby_data["username"])
@@ -314,14 +339,22 @@ class TestMiniVenmo(unittest.TestCase):
 
     def test_mini_venmo_render_feed(self):
         mini_venmo = MiniVenmo()
-        expected_feed = ["Bobby paid Carol $5.00 for Coffee", "Carol paid Bobby $15.00 for Lunch"]
+        expected_feed_msg = [
+            "Bobby paid Carol $5.00 for Coffee",
+            "Carol paid Bobby $15.00 for Lunch",
+        ]
 
         bobby = mini_venmo.create_user("Bobby", 5.00, "4111111111111111")
         carol = mini_venmo.create_user("Carol", 10.00, "4242424242424242")
         bobby.pay(carol, 5.00, "Coffee")
         carol.pay(bobby, 15.00, "Lunch")
         feed = bobby.retrieve_feed()
-        self.assertEqual(feed, expected_feed)
+        self.assertEqual(feed, expected_feed_msg)
+
+        bobby.add_friend(carol)
+        expected_feed_msg.append("Bobby added Carol as a friend.")
+        feed = bobby.retrieve_feed()
+        self.assertEqual(feed, expected_feed_msg)
 
 
 if __name__ == "__main__":
